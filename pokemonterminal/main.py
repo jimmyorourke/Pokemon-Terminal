@@ -15,20 +15,34 @@ from pokemonterminal.filters import Filter
 PIPE_PATH = os.path.join(os.path.expanduser('~'), "/.pokemon-terminal-pipe" + str(os.getppid()))
 PIPE_EXISTS = os.path.exists(PIPE_PATH)
 
+import socket
+HOST = '127.0.0.1'                 # Symbolic name meaning all available interfaces
+PORT = 1024 + os.getppid()         # Arbitrary non-privileged port
 
 def daemon(time_stamp, pkmn_list):
     # TODO: Implement messaging, like status and current pokemon
-    if not PIPE_EXISTS:
-        os.mkfifo(PIPE_PATH)
-    pip = open(PIPE_PATH, 'r')
-    while True:
-        for msg in pip:
-            msg = msg.strip()
-            if msg == 'quit':
-                print("Stopping the slideshow")
-                os.remove(PIPE_PATH)
-                sys.exit(0)
-        pip = open(PIPE_PATH, 'r')
+    # if not PIPE_EXISTS:
+    #     os.mkfifo(PIPE_PATH)
+    # pip = open(PIPE_PATH, 'r')
+    # while True:
+    #     for msg in pip:
+    #         msg = msg.strip()
+    #         if msg == 'quit':
+    #             print("Stopping the slideshow")
+    #             os.remove(PIPE_PATH)
+    #             sys.exit(0)
+    #     pip = open(PIPE_PATH, 'r')
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((HOST, PORT))
+        s.listen(1)
+        conn, addr = s.accept()
+        with conn:
+            while True:
+                data = conn.recv(1024)
+                if data.decode("utf-8") == "quit":
+                    print("Stopping the slideshow")
+                    sys.exit(0)
 
 
 def slideshow(filtered, delay, changer_func):
@@ -56,6 +70,7 @@ def slideshow(filtered, delay, changer_func):
 
 
 def main(argv=None):
+    print(PIPE_PATH)
     """Entrance to the program."""
     if __name__ != "__main__":
         Filter.filtered_list = [pok for pok in Filter.POKEMON_LIST]
@@ -110,10 +125,19 @@ def main(argv=None):
         return
 
     if options.clear:
-        if PIPE_EXISTS:
-            pipe_out = os.open(PIPE_PATH, os.O_WRONLY)
-            os.write(pipe_out, b"quit\n")
-            os.close(pipe_out)
+        print(PORT)
+        print(type(PORT))
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.connect((HOST, PORT))
+                s.sendall(b'quit')
+            except ConnectionRefusedError:
+                # just suppressing this seems bad, but there is no way to no if the slideshow is running
+                pass
+        # if PIPE_EXISTS:
+        #     pipe_out = os.open(PIPE_PATH, os.O_WRONLY)
+        #     os.write(pipe_out, b"quit\n")
+        #     os.close(pipe_out)
         scripter.clear_terminal()
         return
 
@@ -137,4 +161,5 @@ def main(argv=None):
 
 if __name__ == "__main__":
     # Entrance to the program.
+    print(PIPE_PATH)
     main(sys.argv[1:])
