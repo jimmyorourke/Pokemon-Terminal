@@ -6,6 +6,7 @@ import random
 import sys
 import time
 from multiprocessing import Process
+import multiprocessing
 
 from . import scripter
 from pokemonterminal.command_flags import parser, is_slideshow
@@ -17,7 +18,7 @@ PIPE_EXISTS = os.path.exists(PIPE_PATH)
 
 import socket
 HOST = '127.0.0.1'                 # Symbolic name meaning all available interfaces
-PORT = 1024 + os.getppid()         # Arbitrary non-privileged port
+PORT = 1024 #+ os.getppid()         # Arbitrary non-privileged port
 
 def daemon(time_stamp, pkmn_list):
     # TODO: Implement messaging, like status and current pokemon
@@ -34,7 +35,14 @@ def daemon(time_stamp, pkmn_list):
     #     pip = open(PIPE_PATH, 'r')
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
+        #s.bind((HOST, PORT))
+        try:
+            s.bind((HOST, PORT))
+        except socket.error as e:
+            if e.errno == 98 or e.errno == 10048:
+                print("Slideshow already started.")
+                sys.exit(0)
+            raise
         s.listen(1)
         conn, addr = s.accept()
         with conn:
@@ -46,14 +54,14 @@ def daemon(time_stamp, pkmn_list):
 
 
 def slideshow(filtered, delay, changer_func):
-    pid = os.fork()
-    if pid > 0:
-        print(f"Starting slideshow with {len(filtered)}, pokemon " +
-              f"and a delay of {delay} minutes between pokemon")
-        print("Forked process to background with pid", pid,
-              "you can stop it with -c")
-        os.environ["POKEMON_TERMINAL_PID"] = str(pid)
-        sys.exit(0)
+    #pid = os.fork()
+    #if pid > 0:
+    print(f"Starting slideshow with {len(filtered)}, pokemon " +
+          f"and a delay of {delay} minutes between pokemon")
+    #print("Forked process to background with pid", pid,
+    #      "you can stop it with -c")
+    #    os.environ["POKEMON_TERMINAL_PID"] = str(pid)
+    #    sys.exit(0)
     p = Process(target=daemon, args=(time.time(), filtered,))
     p.daemon = True
     p.start()
@@ -68,6 +76,17 @@ def slideshow(filtered, delay, changer_func):
         changer_func(next_pkmn.get_path())
         p.join(delay * 60)
 
+def parent_child(filtered, delay, changer_func):
+    p = multiprocessing.current_process()
+    print('Starting parent child:', p.name, p.pid)
+    #sys.stdout.flush()
+    cc = multiprocessing.Process(name='childchild',
+                                 target=slideshow,
+                                 args=(filtered, delay, changer_func),
+                                daemon = False)
+    cc.start()
+    print('Exiting parent child:', p.name, p.pid)
+    #sys.stdout.flush()
 
 def main(argv=None):
     print(PIPE_PATH)
@@ -150,7 +169,13 @@ def main(argv=None):
             return
         target_func = scripter.change_wallpaper if options.wallpaper else \
             scripter.change_terminal
-        slideshow(Filter.filtered_list, options.slideshow, target_func)
+        d = multiprocessing.Process(name='parentchild',
+                                    target=parent_child,
+                                    args=(Filter.filtered_list, options.slideshow, target_func),
+                                    daemon = False)
+        d.start()
+        time.sleep(0.5)
+        d.terminate()
         return
 
     if options.wallpaper:
